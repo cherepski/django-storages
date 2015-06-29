@@ -4,6 +4,7 @@ import mimetypes
 from gzip import GzipFile
 import datetime
 from tempfile import SpooledTemporaryFile
+import urllib
 
 try:
     from cStringIO import StringIO
@@ -397,8 +398,13 @@ class S3BotoStorage(Storage):
         cleaned_name = self._clean_name(name)
         name = self._normalize_name(cleaned_name)
         headers = self.headers.copy()
-        content_type = getattr(content, 'content_type',
-            mimetypes.guess_type(name)[0] or self.key_class.DefaultContentType)
+        scheme, url = urllib.splittype(name)
+        base, ext = posixpath.splitext(url)
+        if ext == '.svg':
+            content_type = 'image/svg+xml'
+        else:
+            content_type = getattr(content, 'content_type',
+                mimetypes.guess_type(name)[0] or self.key_class.DefaultContentType)
 
         # setting the content_type in the key object is not enough.
         headers.update({'Content-Type': content_type})
