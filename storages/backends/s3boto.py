@@ -3,6 +3,7 @@ import posixpath
 import mimetypes
 from gzip import GzipFile
 import datetime
+from datetime import timedelta
 from tempfile import SpooledTemporaryFile
 import urllib
 
@@ -42,7 +43,7 @@ def parse_ts_extended(ts):
         rv = parse_ts(ts)
     except ValueError:
         rv = datetime.datetime.strptime(ts, RFC1123)
-    return rv
+    return rv - timedelta(days=1)
 
 
 def safe_join(base, *paths):
