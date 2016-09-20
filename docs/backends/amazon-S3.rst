@@ -4,24 +4,12 @@ Amazon S3
 Usage
 *****
 
-There are two backend APIs for interacting with S3. The first is the s3 backend (in storages/backends/s3.py) which is simple and based on the Amazon S3 Python library. The second is the s3boto backend (in storages/backends/s3boto.py) which is well-maintained by the community and is generally more robust (including connection pooling, etc...). s3boto requires the python-boto library.
+There is one backend for interacting with S3 based on the boto library. A legacy backend backed on the Amazon S3 Python library was removed in version 1.2.
 
 Settings
 --------
 
-``DEFAULT_FILE_STORAGE``
-
-This setting sets the path to the S3 storage class, the first part correspond to the filepath and the second the name of the class, if you've got example.com in your PYTHONPATH and store your storage file in example.com/libs/storages/S3Storage.py, the resulting setting will be::
-
-    DEFAULT_FILE_STORAGE = 'libs.storages.S3Storage.S3Storage'
-
-or if you installed using setup.py::
-
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3.S3Storage'
-
-If you keep the same filename as in repository, it should always end with S3Storage.S3Storage.
-
-To use s3boto, this setting will be::
+To use s3boto set::
 
     DEFAULT_FILE_STORAGE = 'storages.backends.s3boto.S3BotoStorage'
 
@@ -37,12 +25,14 @@ Your Amazon Web Services secret access key, as a string.
 
 Your Amazon Web Services storage bucket name, as a string.
 
-``AWS_CALLING_FORMAT`` (Subdomain hardcoded in s3boto)
+``AWS_DEFAULT_ACL`` (optional)
 
-The way you'd like to call the Amazon Web Services API, for instance if you prefer subdomains::
+If set to ``private`` changes uploaded file's Access Control List from the default permission ``public-read`` to give owner full control and remove read access from everyone else. 
 
-    from S3 import CallingFormat
-    AWS_CALLING_FORMAT = CallingFormat.SUBDOMAIN
+``AWS_AUTO_CREATE_BUCKET`` (optional)
+
+If set to ``True`` the bucket specified in ``AWS_STORAGE_BUCKET_NAME`` is automatically created.
+
 
 ``AWS_HEADERS`` (optional)
 
@@ -54,9 +44,28 @@ If you'd like to set headers sent with each file of the storage::
         'Cache-Control': 'max-age=86400',
     }
 
+``AWS_QUERYSTRING_AUTH`` (optional; default is ``True``)
+
+Setting ``AWS_QUERYSTRING_AUTH`` to ``False`` removes `query parameter
+authentication`_ from generated URLs. This can be useful if your S3 buckets are
+public.
+
+``AWS_QUERYSTRING_EXPIRE`` (optional; default is 3600 seconds)
+
+The number of seconds that a generated URL with `query parameter
+authentication`_ is valid for.
+
+
 To allow ``django-admin.py`` collectstatic to automatically put your static files in your bucket set the following in your settings.py::
 
     STATICFILES_STORAGE = 'storages.backends.s3boto.S3BotoStorage'
+
+
+.. _query parameter authentication: https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html
+
+``AWS_S3_ENCRYPTION`` (optional; default is False)
+
+Enable server-side file encryption while at rest, by setting ``encrypt_key`` parameter to True. More info available here: http://boto.cloudhackers.com/en/latest/ref/s3.html
 
 Fields
 ------

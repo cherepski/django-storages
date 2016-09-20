@@ -51,7 +51,7 @@ Amazon S3 store, and a third bucket (``bucket-3``) on Google::
             'bucket': 'bucket-2',
         },
         'google': {
-            'type': 'libcloud.storage.types.GOOGLE_STORAGE',
+            'type': 'libcloud.storage.types.Provider.GOOGLE_STORAGE',
             'user': '<Your Google APIv1 username>',
             'key': '<Your Google APIv1 Key>',
             'bucket': 'bucket-3',
@@ -152,8 +152,8 @@ Your default Libcloud provider will be used as the file store.
 Certifcate authorities
 ----------------------
 
-Libcloud uses HTTPS connections, and in order for these HTTPS connections are
-correctly signed, certificate authorities must be present. On some platforms
+Libcloud uses HTTPS connections, and in order to validate that these HTTPS connections are
+correctly signed, root CA certificates must be present. On some platforms
 (most notably, OS X and Windows), the required certificates may not be available
 by default. To test
 

@@ -4,14 +4,15 @@ Created by Christian Klein.
 (c) Copyright 2009 HUDORA GmbH. All Rights Reserved.
 """
 import os
-from cStringIO import StringIO
-from urlparse import urljoin
-from urllib import quote_plus
+import warnings
 
 from django.conf import settings
 from django.core.files import File
 from django.core.files.storage import Storage
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.deconstruct import deconstructible
+from django.utils.six.moves.urllib import parse as urlparse
+from django.utils.six import BytesIO
 
 try:
     import couchdb
@@ -19,18 +20,26 @@ except ImportError:
     raise ImproperlyConfigured("Could not load couchdb dependency.\
     \nSee http://code.google.com/p/couchdb-python/")
 
-DEFAULT_SERVER= getattr(settings, 'COUCHDB_DEFAULT_SERVER', 'http://couchdb.local:5984')
-STORAGE_OPTIONS= getattr(settings, 'COUCHDB_STORAGE_OPTIONS', {})
+DEFAULT_SERVER = getattr(settings, 'COUCHDB_DEFAULT_SERVER', 'http://couchdb.local:5984')
+STORAGE_OPTIONS = getattr(settings, 'COUCHDB_STORAGE_OPTIONS', {})
 
 
+warnings.warn(
+    'CouchDBStorage is unmaintained and will be removed in the next version of django-storages '
+    'See https://github.com/jschneier/django-storages/issues/202',
+    PendingDeprecationWarning
+)
+
+
+@deconstructible
 class CouchDBStorage(Storage):
     """
     CouchDBStorage - a Django Storage class for CouchDB.
 
     The CouchDBStorage can be configured in settings.py, e.g.::
-    
+
         COUCHDB_STORAGE_OPTIONS = {
-            'server': "http://example.org", 
+            'server': "http://example.org",
             'database': 'database_name'
         }
 
@@ -73,10 +82,10 @@ class CouchDBStorage(Storage):
         return 0
 
     def url(self, name):
-        return urljoin(self.base_url, 
-                       os.path.join(quote_plus(self.db.name), 
-                       quote_plus(name), 
-                       'content'))
+        return urlparse.urljoin(self.base_url,
+                                os.path.join(urlparse.quote_plus(self.db.name),
+                                urlparse.quote_plus(name),
+                                'content'))
 
     def delete(self, name):
         try:
@@ -109,12 +118,12 @@ class CouchDBFile(File):
             else:
                 filename = "content"
             attachment = self._storage.db.get_attachment(self._doc, filename=filename)
-            self.file = StringIO(attachment)
+            self.file = BytesIO(attachment)
         except couchdb.client.ResourceNotFound:
             if 'r' in self._mode:
                 raise ValueError("The file cannot be reopened.")
             else:
-                self.file = StringIO()
+                self.file = BytesIO()
                 self._is_dirty = True
 
     @property
@@ -124,7 +133,7 @@ class CouchDBFile(File):
     def write(self, content):
         if 'w' not in self._mode:
             raise AttributeError("File was opened for read-only access.")
-        self.file = StringIO(content)
+        self.file = BytesIO(content)
         self._is_dirty = True
 
     def close(self):

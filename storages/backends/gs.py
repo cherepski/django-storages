@@ -1,9 +1,6 @@
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO  # noqa
-
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.deconstruct import deconstructible
+from django.utils.six import BytesIO
 
 from storages.backends.s3boto import S3BotoStorage, S3BotoStorageFile
 from storages.utils import setting
@@ -22,7 +19,7 @@ class GSBotoStorageFile(S3BotoStorageFile):
     def write(self, content):
         if 'w' not in self._mode:
             raise AttributeError("File was not opened in write mode.")
-        self.file = StringIO(content)
+        self.file = BytesIO(content)
         self._is_dirty = True
 
     def close(self):
@@ -34,6 +31,7 @@ class GSBotoStorageFile(S3BotoStorageFile):
         self.key.close()
 
 
+@deconstructible
 class GSBotoStorage(S3BotoStorage):
     connection_class = GSConnection
     connection_response_error = GSResponseError
@@ -59,7 +57,7 @@ class GSBotoStorage(S3BotoStorage):
     calling_format = setting('GS_CALLING_FORMAT', SubdomainCallingFormat())
     secure_urls = setting('GS_SECURE_URLS', True)
     file_name_charset = setting('GS_FILE_NAME_CHARSET', 'utf-8')
-    is_gzipped = setting('GS_IS_GZIPPED', False)
+    gzip = setting('GS_IS_GZIPPED', False)
     preload_metadata = setting('GS_PRELOAD_METADATA', False)
     gzip_content_types = setting('GS_GZIP_CONTENT_TYPES', (
         'text/css',
@@ -67,6 +65,7 @@ class GSBotoStorage(S3BotoStorage):
         'application/x-javascript',
     ))
     url_protocol = setting('GS_URL_PROTOCOL', 'http:')
+    host = setting('GS_HOST', GSConnection.DefaultHost)
 
     def _save_content(self, key, content, headers):
         # only pass backwards incompatible arguments if they vary from the default

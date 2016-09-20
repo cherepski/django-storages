@@ -15,29 +15,36 @@
 #     file = models.FileField(upload_to='a/b/c/', storage=fs)
 
 import os
+from datetime import datetime
 import ftplib
-import urlparse
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
 
 from django.conf import settings
 from django.core.files.base import File
 from django.core.files.storage import Storage
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.deconstruct import deconstructible
+from django.utils.six.moves.urllib import parse as urlparse
+from django.utils.six import BytesIO
+
+from storages.utils import setting
 
 
 class FTPStorageException(Exception):
     pass
 
 
+@deconstructible
 class FTPStorage(Storage):
     """FTP Storage class for Django pluggable storage system."""
 
-    def __init__(self, location=settings.FTP_STORAGE_LOCATION,
-                 base_url=settings.MEDIA_URL):
+    def __init__(self, location=None, base_url=None):
+        location = location or setting('FTP_STORAGE_LOCATION')
+        if location is None:
+            raise ImproperlyConfigured("You must set a location at "
+                                       "instanciation or at "
+                                       " settings.FTP_STORAGE_LOCATION'.")
+        self.location = location
+        base_url = base_url or settings.MEDIA_URL
         self._config = self._decode_location(location)
         self._base_url = base_url
         self._connection = None
@@ -131,13 +138,14 @@ class FTPStorage(Storage):
         return remote_file
 
     def _read(self, name):
-        memory_file = StringIO()
+        memory_file = BytesIO()
         try:
             pwd = self._connection.pwd()
             self._connection.cwd(os.path.dirname(name))
             self._connection.retrbinary('RETR ' + os.path.basename(name),
                                         memory_file.write)
             self._connection.cwd(pwd)
+            memory_file.seek(0)
             return memory_file
         except ftplib.all_errors:
             raise FTPStorageException('Error reading file %s' % name)
@@ -170,11 +178,25 @@ class FTPStorage(Storage):
         except ftplib.all_errors:
             raise FTPStorageException('Error getting listing for %s' % path)
 
+    def modified_time(self, name):
+        self._start_connection()
+        resp = self._connection.sendcmd('MDTM ' + name)
+        if resp[:3] == '213':
+            s = resp[3:].strip()
+            # workaround for broken FTP servers returning responses
+            # starting with e.g. 1904... instead of 2004...
+            if len(s) == 15 and s[:2] == '19':
+                s = str(1900 + int(s[2:5])) + s[5:]
+            return datetime.strptime(s, '%Y%m%d%H%M%S')
+        raise FTPStorageException(
+                'Error getting modification time of file %s' % name
+        )
+
     def listdir(self, path):
         self._start_connection()
         try:
             dirs, files = self._get_dir_details(path)
-            return dirs.keys(), files.keys()
+            return list(dirs.keys()), list(files.keys())
         except FTPStorageException:
             raise
 
@@ -190,9 +212,10 @@ class FTPStorage(Storage):
     def exists(self, name):
         self._start_connection()
         try:
-            if os.path.basename(name) in self._connection.nlst(
+            nlst = self._connection.nlst(
                 os.path.dirname(name) + '/'
-            ):
+            )
+            if name in nlst or os.path.basename(name) in nlst:
                 return True
             else:
                 return False
@@ -224,38 +247,43 @@ class FTPStorage(Storage):
 
 class FTPStorageFile(File):
     def __init__(self, name, storage, mode):
-        self._name = name
+        self.name = name
         self._storage = storage
         self._mode = mode
         self._is_dirty = False
-        self.file = StringIO()
+        self.file = BytesIO()
         self._is_read = False
 
     @property
     def size(self):
         if not hasattr(self, '_size'):
-            self._size = self._storage.size(self._name)
+            self._size = self._storage.size(self.name)
         return self._size
+
+    def readlines(self):
+        if not self._is_read:
+            self._storage._start_connection()
+            self.file = self._storage._read(self.name)
+            self._is_read = True
+        return self.file.readlines()
 
     def read(self, num_bytes=None):
         if not self._is_read:
             self._storage._start_connection()
-            self.file = self._storage._read(self._name)
-            self._storage._end_connection()
+            self.file = self._storage._read(self.name)
             self._is_read = True
-
         return self.file.read(num_bytes)
 
     def write(self, content):
         if 'w' not in self._mode:
             raise AttributeError("File was opened for read-only access.")
-        self.file = StringIO(content)
+        self.file = BytesIO(content)
         self._is_dirty = True
         self._is_read = True
 
     def close(self):
         if self._is_dirty:
             self._storage._start_connection()
-            self._storage._put_file(self._name, self)
+            self._storage._put_file(self.name, self)
             self._storage.disconnect()
         self.file.close()

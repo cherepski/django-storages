@@ -4,15 +4,12 @@
 import os
 
 from django.conf import settings
-from django.core.files.storage import Storage
 from django.core.files.base import File
+from django.core.files.storage import Storage
 from django.core.exceptions import ImproperlyConfigured
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
-
+from django.utils.deconstruct import deconstructible
+from django.utils.six import string_types, BytesIO
+from django.utils.six.moves.urllib.parse import urljoin
 
 try:
     from libcloud.storage.providers import get_driver
@@ -21,6 +18,7 @@ except ImportError:
     raise ImproperlyConfigured("Could not load libcloud")
 
 
+@deconstructible
 class LibCloudStorage(Storage):
     """Django storage derived class using apache libcloud to operate
     on supported providers"""
@@ -37,7 +35,7 @@ class LibCloudStorage(Storage):
             extra_kwargs['region'] = self.provider['region']
         try:
             provider_type = self.provider['type']
-            if isinstance(provider_type, basestring):
+            if isinstance(provider_type, string_types):
                 module_path, tag = provider_type.rsplit('.', 1)
                 if module_path != 'libcloud.storage.types.Provider':
                     raise ValueError("Invalid module path")
@@ -51,7 +49,7 @@ class LibCloudStorage(Storage):
             )
         except Exception as e:
             raise ImproperlyConfigured(
-                "Unable to create libcloud driver type %s: %s" % \
+                "Unable to create libcloud driver type %s: %s" %
                 (self.provider.get('type'), e))
         self.bucket = self.provider['bucket']   # Limit to one container
 
@@ -81,7 +79,7 @@ class LibCloudStorage(Storage):
 
     def exists(self, name):
         obj = self._get_object(name)
-        return True if obj else False
+        return bool(obj)
 
     def listdir(self, path='/'):
         """Lists the contents of the specified path,
@@ -103,7 +101,7 @@ class LibCloudStorage(Storage):
                     files.append(o.name)
                 elif o.name.count('/') == 1:
                     dir_name = o.name[:o.name.index('/')]
-                    if not dir_name in dirs:
+                    if dir_name not in dirs:
                         dirs.append(dir_name)
             elif o.name.startswith(path):
                 if o.name.count('/') <= path.count('/'):
@@ -119,20 +117,35 @@ class LibCloudStorage(Storage):
 
     def size(self, name):
         obj = self._get_object(name)
-        if obj:
-            return obj.size
-        else:
-            return -1
+        return obj.size if obj else -1
 
     def url(self, name):
+        provider_type = self.provider['type'].lower()
         obj = self._get_object(name)
-        return self.driver.get_object_cdn_url(obj)
+        if not obj:
+            return None
+        try:
+            url = self.driver.get_object_cdn_url(obj)
+        except NotImplementedError as e:
+            object_path = '%s/%s' % (self.bucket, obj.name)
+            if 's3' in provider_type:
+                base_url = 'https://%s' % self.driver.connection.host
+                url = urljoin(base_url, object_path)
+            elif 'google' in provider_type:
+                url = urljoin('https://storage.googleapis.com', object_path)
+            elif 'azure' in provider_type:
+                base_url = ('https://%s.blob.core.windows.net' %
+                            self.provider['user'])
+                url = urljoin(base_url, object_path)
+            else:
+                raise e
+        return url
 
     def _open(self, name, mode='rb'):
         remote_file = LibCloudFile(name, self, mode=mode)
         return remote_file
 
-    def _read(self, name, start_range=None, end_range=None):
+    def _read(self, name):
         obj = self._get_object(name)
         # TOFIX : we should be able to read chunk by chunk
         return next(self.driver.download_object_as_stream(obj, obj.size))
@@ -145,36 +158,39 @@ class LibCloudStorage(Storage):
 class LibCloudFile(File):
     """File inherited class for libcloud storage objects read and write"""
     def __init__(self, name, storage, mode):
-        self._name = name
+        self.name = name
         self._storage = storage
         self._mode = mode
         self._is_dirty = False
-        self.file = StringIO()
-        self.start_range = 0
+        self._file = None
+
+    def _get_file(self):
+        if self._file is None:
+            data = self._storage._read(self.name)
+            self._file = BytesIO(data)
+        return self._file
+
+    def _set_file(self, value):
+        self._file = value
+
+    file = property(_get_file, _set_file)
 
     @property
     def size(self):
         if not hasattr(self, '_size'):
-            self._size = self._storage.size(self._name)
+            self._size = self._storage.size(self.name)
         return self._size
 
     def read(self, num_bytes=None):
-        if num_bytes is None:
-            args = []
-            self.start_range = 0
-        else:
-            args = [self.start_range, self.start_range + num_bytes - 1]
-        data = self._storage._read(self._name, *args)
-        self.file = StringIO(data)
-        return self.file.getvalue()
+        return self.file.read(num_bytes)
 
     def write(self, content):
         if 'w' not in self._mode:
             raise AttributeError("File was opened for read-only access.")
-        self.file = StringIO(content)
+        self.file = BytesIO(content)
         self._is_dirty = True
 
     def close(self):
         if self._is_dirty:
-            self._storage._save(self._name, self.file)
+            self._storage._save(self.name, self.file)
         self.file.close()

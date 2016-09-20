@@ -1,21 +1,34 @@
-import os, hashlib, errno
+import errno
+import hashlib
+import os
+import warnings
 
 from django.core.files.storage import FileSystemStorage
-from django.utils.encoding import force_unicode
+from django.utils.deconstruct import deconstructible
+from django.utils.encoding import force_text, force_bytes
 
+warnings.warn(
+    'HashPathStorage is unmaintaiined and will be removed in the next version of django-storages.'
+    'See https://github.com/jschneier/django-storages/issues/202',
+    PendingDeprecationWarning
+)
+
+
+@deconstructible
 class HashPathStorage(FileSystemStorage):
     """
     Creates a hash from the uploaded file to build the path.
     """
 
-    def save(self, name, content):
+    def save(self, name, content, max_length=None):
         # Get the content name if name is not given
-        if name is None: name = content.name
+        if name is None:
+            name = content.name
 
         # Get the SHA1 hash of the uploaded file
         sha1 = hashlib.sha1()
         for chunk in content.chunks():
-            sha1.update(chunk)
+            sha1.update(force_bytes(chunk))
         sha1sum = sha1.hexdigest()
 
         # Build the new path and split it into directory and filename
@@ -37,4 +50,4 @@ class HashPathStorage(FileSystemStorage):
         name = self._save(name, content)
 
         # Store filenames with forward slashes, even on Windows
-        return force_unicode(name.replace('\\', '/'))
+        return force_text(name.replace('\\', '/'))
